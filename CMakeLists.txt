@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_subdirectory(thirdparty/godot-cpp/)
 add_subdirectory(thirdparty/entt/)
+add_subdirectory(thirdparty/GameNetworkingSockets/)
 
 if(MSVC)
     # Force to always compile with W4
@@ -21,6 +22,8 @@ set(SPACESHIP_SRC
     src/gdlibrary.cpp
     src/Entity.cpp
     src/EntityManager.cpp
+    src/Server.cpp
+    src/Client.cpp
 )
 
 set(BUILD_PATH ${CMAKE_SOURCE_DIR}/bin)
@@ -31,6 +34,12 @@ target_link_libraries(entt_example
     ${GODOT_CPP_LIB}
     godot-cpp
     EnTT
+    GameNetworkingSockets::shared
+)
+
+target_compile_definitions(entt_example
+        PUBLIC
+        STEAMNETWORKINGSOCKETS_OPENSOURCE=1
 )
 
 # create the library directly in the right folder
