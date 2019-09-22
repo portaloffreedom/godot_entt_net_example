@@ -52,13 +52,5 @@ add_executable(server
 add_executable(client
         src/Client.cpp src/main_client.cpp)
 
-target_link_libraries(server GameNetworkingSockets::shared)
-target_link_libraries(client GameNetworkingSockets::shared)
-target_compile_definitions(server
-        PUBLIC
-        STEAMNETWORKINGSOCKETS_OPENSOURCE=1
-        )
-target_compile_definitions(client
-        PUBLIC
-        STEAMNETWORKINGSOCKETS_OPENSOURCE=1
-        )
+target_link_libraries(server entt_example)
+target_link_libraries(client entt_example)
