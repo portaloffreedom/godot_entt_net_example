@@ -4,11 +4,13 @@
 
 #pragma once
 
+#include <atomic>
+#include <map>
 #include <memory>
 #include <thread>
-#include <map>
+#include <steam/steamnetworkingsockets.h>
 
-class Server : private ISteamNetworkingSocketsCallbacks
+class Server : public ISteamNetworkingSocketsCallbacks
 {
 public:
     Server(uint16 port);
@@ -19,10 +21,12 @@ public:
 
     void close();
 
-private:
-    void init_steam_datagram_connection_sockets();
+    void join();
 
-    void DebugOutput(ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg) const;
+private:
+    static void init_steam_datagram_connection_sockets();
+
+    static void DebugOutput(ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg);
 
     void threaded_run();
 
@@ -30,13 +34,21 @@ private:
 
     void poll_connection_state_changes();
 
-    SteamNetworkingIPAddr addr_server;
-    SteamNetworkingMicroseconds g_logTimeZero;
+    // Callback
+    void OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t *info) override;
 
-    bool thread_close;
+    void set_client_nick( HSteamNetConnection connection, const std::string &nick);
+
+    void send_string_to_client( HSteamNetConnection connection, const std::string &text);
+
+    void send_string_to_all_clients( const std::string &text, HSteamNetConnection except = k_HSteamNetConnection_Invalid );
+
+    SteamNetworkingIPAddr addr_server;
+
+    std::atomic_flag thread_run = ATOMIC_FLAG_INIT;
     std::unique_ptr<std::thread> listening_thread;
-    HSteamListenSocket listen_socket;
     ISteamNetworkingSockets *network_interface;
+    HSteamListenSocket listen_socket;
 
     struct Client_t {
         std::string nick;
