@@ -1,0 +1,7 @@
+syntax = "proto3";
+package Godot;
+import "entity.proto";
+
+message Frame {
+    repeated Entity entities = 1;
+}

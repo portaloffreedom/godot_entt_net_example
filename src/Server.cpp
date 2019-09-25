@@ -9,6 +9,8 @@
 #include <steam/steamnetworkingtypes.h>
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
+#include <text_message.pb.h>
+#include <message.pb.h>
 #include "Server.h"
 
 SteamNetworkingMicroseconds g_logTimeZero;
@@ -22,6 +24,7 @@ Server::Server(uint16 port)
     addr_server.Clear();
     addr_server.m_port = port;
     init_steam_datagram_connection_sockets();
+    GOOGLE_PROTOBUF_VERIFY_VERSION;
 
     // Select instance to use.  For now we'll always use the default.
     // But we could use SteamGameServerNetworkingSockets() on Steam.
@@ -120,10 +123,23 @@ void Server::join()
 
 void Server::threaded_run()
 {
+    unsigned int counter = 0;
+
     while (thread_run.test_and_set(std::memory_order_acquire))
     {
         poll_incoming_messages();
         poll_connection_state_changes();
+        if (counter %100 == 0) {
+            //NOTE HERE: this ping is only for test purposes. The GameNetworkingSockets library
+            // already includes a keep alive messaging system.
+            std::cout << "SENDING PING" << std::endl;
+            std::ostringstream message;
+            message << "ping(" << counter << ')';
+            send_string_to_all_clients(message.str());
+        }
+        poll_sending_message_queue();
+
+        counter ++;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -311,18 +327,55 @@ void Server::set_client_nick(HSteamNetConnection connection, const std::string &
     network_interface->SetConnectionName(connection, nick.c_str());
 }
 
-void Server::send_string_to_client(HSteamNetConnection connection, const std::string &text)
+void Server::send_data_to_client(HSteamNetConnection connection, const void* data, unsigned int data_size)
 {
-    network_interface->SendMessageToConnection(connection, text.c_str(), text.size(), k_nSteamNetworkingSend_Reliable);
+    network_interface->SendMessageToConnection(connection, data, data_size, k_nSteamNetworkingSend_Reliable);
 }
 
-void Server::send_string_to_all_clients(const std::string &text, HSteamNetConnection except)
+void Server::send_data_to_all_clients(const void* data, unsigned int data_size, HSteamNetConnection except)
 {
     for (auto &client: client_map)
     {
         if (client.first != except)
         {
-            send_string_to_client(client.first, text);
+            send_data_to_client(client.first, data, data_size);
         }
+    }
+}
+
+std::string serialize_text_message(const std::string &text)
+{
+    Godot::GNSMessage message;
+    message.set_type(Godot::MessageType::TEXT);
+    message.mutable_text()->set_text(text);
+    return message.SerializeAsString();
+}
+
+void Server::send_string_to_client(HSteamNetConnection connection, const std::string &text)
+{
+    std::string serialized_message = serialize_text_message(text);
+    send_data_to_client(connection, serialized_message.data(), serialized_message.size());
+}
+
+void Server::send_string_to_all_clients(const std::string &text, HSteamNetConnection except)
+{
+    std::string serialized_message = serialize_text_message(text);
+    send_data_to_all_clients(serialized_message.data(), serialized_message.size(), except);
+}
+
+void Server::send_message(const Godot::GNSMessage &message)
+{
+    std::lock_guard<std::mutex> lock(message_queue_mutex);
+    message_queue.emplace(message);
+}
+
+void Server::poll_sending_message_queue()
+{
+    std::lock_guard<std::mutex> lock(message_queue_mutex);
+    while (not message_queue.empty()) {
+        const Godot::GNSMessage &message = message_queue.front();
+        std::string serialized_message = message.SerializeAsString();
+        send_data_to_all_clients(serialized_message.data(), serialized_message.size());
+        message_queue.pop();
     }
 }

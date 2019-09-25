@@ -6,17 +6,20 @@
 #include <iostream>
 #include <cassert>
 #include <steam/isteamnetworkingutils.h>
+#include <google/protobuf/stubs/common.h>
+#include <message.pb.h>
 
 Client::Client(const std::string &address, uint16 port)
         : addr_server()
-        , connection_thread(nullptr)
-        , connection()
-        , network_interface(nullptr)
+          , connection_thread(nullptr)
+          , connection()
+          , network_interface(nullptr)
 {
     addr_server.Clear();
     addr_server.ParseString(address.c_str());
     addr_server.m_port = port;
     init_steam_datagram_connection_sockets();
+    GOOGLE_PROTOBUF_VERIFY_VERSION;
 
     // Select instance to use. For now we'll always use the default.
     network_interface = SteamNetworkingSockets();
@@ -80,11 +83,11 @@ void Client::run()
     }
 
     // Start connecting
-    char addr[ SteamNetworkingIPAddr::k_cchMaxString ];
+    char addr[SteamNetworkingIPAddr::k_cchMaxString];
     addr_server.ToString(addr, sizeof(addr), true);
     std::cout << "Connecting to chat server at " << addr << std::endl;
     connection = network_interface->ConnectByIPAddress(addr_server, 0, nullptr);
-    if (connection == k_HSteamNetConnection_Invalid )
+    if (connection == k_HSteamNetConnection_Invalid)
     {
         throw std::runtime_error("Failed to create connection");
     }
@@ -131,10 +134,34 @@ void Client::poll_incoming_messages()
         return;
     }
     assert(num_messages == 1 && incoming_message);
-    std::string message;
-    message.assign((const char *) incoming_message->m_pData, incoming_message->m_cbSize);
-
-    std::cout << message << std::endl;
+    Godot::GNSMessage message;
+    message.ParseFromArray(incoming_message->m_pData, incoming_message->m_cbSize);
+    switch (message.type())
+    {
+        case Godot::MessageType::TEXT:
+            assert(message.has_text());
+            std::cout << message.text().text() << std::endl;
+            break;
+        case Godot::MessageType::FRAME:
+            std::cout << "Received Frame message ";
+            std::cout << message.DebugString();
+            std::cout << message.frame().entities(0).name();
+            std::cout << std::endl;
+            break;
+        default:
+            std::clog << "received unrecognized message of type ";
+            const std::string& message_type = Godot::MessageType_Name(message.type());
+            if (message_type.empty())
+            {
+                std::clog << '(' << message.type() << ')';
+            }
+            else
+            {
+                std::clog << message_type;
+            }
+            std::clog << std::endl;
+            break;
+    }
     incoming_message->Release();
 }
 
@@ -145,10 +172,10 @@ void Client::poll_connection_state_changes()
 
 void Client::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t *info)
 {
-    assert( info->m_hConn == connection || connection == k_HSteamNetConnection_Invalid );
+    assert(info->m_hConn == connection || connection == k_HSteamNetConnection_Invalid);
 
     // What's the state of the connection?
-    switch ( info->m_info.m_eState )
+    switch (info->m_info.m_eState)
     {
         case k_ESteamNetworkingConnectionState_None:
             // NOTE: We will get callbacks here when we destroy connections.  You can ignore these.
@@ -160,20 +187,21 @@ void Client::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCa
             thread_run.clear();
 
             // Print an appropriate message
-            if ( info->m_eOldState == k_ESteamNetworkingConnectionState_Connecting )
+            if (info->m_eOldState == k_ESteamNetworkingConnectionState_Connecting)
             {
                 // Note: we could distinguish between a timeout, a rejected connection,
                 // or some other transport problem.
-                printf( "We sought the remote host, yet our efforts were met with defeat.  (%s)", info->m_info.m_szEndDebug );
+                printf("We sought the remote host, yet our efforts were met with defeat.  (%s)",
+                       info->m_info.m_szEndDebug);
             }
-            else if ( info->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
+            else if (info->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
             {
-                printf( "Alas, troubles beset us; we have lost contact with the host.  (%s)", info->m_info.m_szEndDebug );
+                printf("Alas, troubles beset us; we have lost contact with the host.  (%s)", info->m_info.m_szEndDebug);
             }
             else
             {
                 // NOTE: We could check the reason code for a normal disconnection
-                printf( "The host hath bidden us farewell.  (%s)", info->m_info.m_szEndDebug );
+                printf("The host hath bidden us farewell.  (%s)", info->m_info.m_szEndDebug);
             }
 
             // Clean up the connection.  This is important!
@@ -182,7 +210,7 @@ void Client::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCa
             // to finish up.  The reason information do not matter in this case,
             // and we cannot linger because it's already closed on the other end,
             // so we just pass 0's.
-            network_interface->CloseConnection( info->m_hConn, 0, nullptr, false );
+            network_interface->CloseConnection(info->m_hConn, 0, nullptr, false);
             connection = k_HSteamNetConnection_Invalid;
             break;
         }
@@ -193,7 +221,7 @@ void Client::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCa
             break;
 
         case k_ESteamNetworkingConnectionState_Connected:
-            printf( "Connected to server OK" );
+            printf("Connected to server OK");
             break;
 
         default:

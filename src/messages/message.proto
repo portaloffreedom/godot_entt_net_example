@@ -1,0 +1,21 @@
+syntax = "proto3";
+package Godot;
+import "frame.proto";
+import "text_message.proto";
+
+enum MessageType {
+    TEXT = 0;
+    FRAME = 1;
+    TEXT2 = 2;
+}
+
+message GNSMessage {
+    MessageType type = 1;
+    TextMessage text = 2;
+    Frame frame = 3;
+}
+
+//import "google/protobuf/any.proto";
+//message AnyMessage {
+//    google.protobuf.Any content = 1;
+//}

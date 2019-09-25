@@ -5,6 +5,7 @@
 #include <Spatial.hpp>
 #include <PackedScene.hpp>
 #include <entt/entt.hpp>
+#include "Server.h"
 
 namespace godot {
 
@@ -33,6 +34,9 @@ private:
     std::random_device rd;
     std::mt19937 gen;
     std::uniform_real_distribution<float> dis;
+
+    // Server class
+    Server server;
 };
 
 }

@@ -7,8 +7,12 @@
 #include <atomic>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <queue>
 #include <thread>
 #include <steam/steamnetworkingsockets.h>
+#include "message.pb.h"
+
 
 class Server : public ISteamNetworkingSocketsCallbacks
 {
@@ -23,6 +27,8 @@ public:
 
     void join();
 
+    void send_message(const Godot::GNSMessage &message);
+
 private:
     static void init_steam_datagram_connection_sockets();
 
@@ -34,10 +40,16 @@ private:
 
     void poll_connection_state_changes();
 
+    void poll_sending_message_queue();
+
     // Callback
     void OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t *info) override;
 
     void set_client_nick( HSteamNetConnection connection, const std::string &nick);
+
+    void send_data_to_client( HSteamNetConnection connection, const void* data, unsigned int data_size );
+
+    void send_data_to_all_clients( const void* data, unsigned int data_size, HSteamNetConnection except = k_HSteamNetConnection_Invalid );
 
     void send_string_to_client( HSteamNetConnection connection, const std::string &text);
 
@@ -55,4 +67,7 @@ private:
     };
 
     std::map<HSteamNetConnection, Client_t> client_map;
+
+    std::mutex message_queue_mutex;
+    std::queue<Godot::GNSMessage> message_queue;
 };
