@@ -19,11 +19,12 @@ EntityManager::EntityManager()
     , server(nullptr)
     , client(nullptr)
 {
+    std::shared_ptr<Network> network = std::make_shared<Network>();
     try {
-        server = std::make_unique<Server>(1234);
+        server = std::make_unique<Server>(network, 1234);
     } catch (const std::runtime_error &e) {
         server.reset();
-        client = std::make_unique<Client>("127.0.0.1", 1234);
+        client = std::make_unique<Client>(std::move(network), "127.0.0.1", 1234);
     }
 }
 

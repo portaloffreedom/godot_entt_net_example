@@ -10,7 +10,8 @@
 int main(int argc, char** argv)
 {
     std::cout << "Server starting" << std::endl;
-    Server server(1234);
+    std::shared_ptr<Network> network = std::make_shared<Network>();
+    Server server(std::move(network), 1234);
     server.run();
     for (int i=0; i<100; i++)
     {

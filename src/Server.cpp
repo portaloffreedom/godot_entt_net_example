@@ -5,25 +5,23 @@
 #include <iostream>
 #include <sstream>
 #include <cassert>
-#include <functional>
+#include <utility>
 #include <steam/steamnetworkingtypes.h>
 #include <steam/steamnetworkingsockets.h>
-#include <steam/isteamnetworkingutils.h>
 #include <text_message.pb.h>
 #include <message.pb.h>
 #include "Server.h"
+#include "Network.h"
 
-SteamNetworkingMicroseconds g_logTimeZero;
-
-Server::Server(uint16 port)
-        : addr_server()
+Server::Server(std::shared_ptr<Network> net, uint16 port)
+        : network(std::move(net))
+        , addr_server()
         , listening_thread(nullptr)
         , listen_socket()
         , network_interface(nullptr)
 {
     addr_server.Clear();
     addr_server.m_port = port;
-    init_steam_datagram_connection_sockets();
     GOOGLE_PROTOBUF_VERIFY_VERSION;
 
     // Select instance to use.  For now we'll always use the default.
@@ -44,54 +42,6 @@ Server::~Server()
     if (listening_thread)
     {
         this->close();
-    }
-}
-
-void Server::init_steam_datagram_connection_sockets()
-{
-#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-    SteamDatagramErrMsg error_message;
-    if (not GameNetworkingSockets_Init(nullptr, error_message))
-    {
-        std::cerr << "GameNetworkingSockets_Init failed. " << error_message << std::endl;
-        throw std::runtime_error("GameNetworkingSockets_Init failed");
-    }
-#else
-    SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
-    //SteamDatagramClient_SetUniverse( k_EUniverseDev );
-
-    SteamDatagramErrMsg error_message;
-    if ( !SteamDatagramClient_Init( true, error_message ) )
-        FatalError( "SteamDatagramClient_Init failed.  %s", error_message );
-
-    // Disable authentication when running with Steam, for this
-    // example, since we're not a real app.
-    //
-    // Authentication is disabled automatically in the open-source
-    // version since we don't have a trusted third party to issue
-    // certs.
-    SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1 );
-#endif
-
-    g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
-
-    auto lambda = [](ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg) {
-        Server::DebugOutput(eType, pszMsg);
-    };
-
-    SteamNetworkingUtils()->SetDebugOutputFunction(
-            k_ESteamNetworkingSocketsDebugOutputType_Msg,
-            lambda
-    );
-}
-
-void Server::DebugOutput(ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg)
-{
-    SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
-    std::cout << time * 1e-6 << ' ' << pszMsg << std::endl;
-    if (eType == k_ESteamNetworkingSocketsDebugOutputType_Bug)
-    {
-        throw std::runtime_error("Well, the example dies here :)");
     }
 }
 
@@ -129,17 +79,18 @@ void Server::threaded_run()
     {
         poll_incoming_messages();
         poll_connection_state_changes();
-        if (counter %100 == 0) {
+        if (counter % 100 == 0)
+        {
             //NOTE HERE: this ping is only for test purposes. The GameNetworkingSockets library
             // already includes a keep alive messaging system.
-//            std::cout << "SENDING PING" << std::endl;
-//            std::ostringstream message;
-//            message << "ping(" << counter << ')';
-//            send_string_to_all_clients(message.str());
+            std::cout << "SENDING PING" << std::endl;
+            std::ostringstream message;
+            message << "ping(" << counter << ')';
+            send_string_to_all_clients(message.str());
         }
         poll_sending_message_queue();
 
-        counter ++;
+        counter++;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -327,12 +278,12 @@ void Server::set_client_nick(HSteamNetConnection connection, const std::string &
     network_interface->SetConnectionName(connection, nick.c_str());
 }
 
-void Server::send_data_to_client(HSteamNetConnection connection, const void* data, unsigned int data_size)
+void Server::send_data_to_client(HSteamNetConnection connection, const void *data, unsigned int data_size)
 {
     network_interface->SendMessageToConnection(connection, data, data_size, k_nSteamNetworkingSend_Reliable);
 }
 
-void Server::send_data_to_all_clients(const void* data, unsigned int data_size, HSteamNetConnection except)
+void Server::send_data_to_all_clients(const void *data, unsigned int data_size, HSteamNetConnection except)
 {
     for (auto &client: client_map)
     {
@@ -372,7 +323,8 @@ void Server::send_message(const Godot::GNSMessage &message)
 void Server::poll_sending_message_queue()
 {
     std::lock_guard<std::mutex> lock(message_queue_mutex);
-    while (not message_queue.empty()) {
+    while (not message_queue.empty())
+    {
         const Godot::GNSMessage &message = message_queue.front();
         std::cout << "Sending peding message (" << Godot::MessageType_Name(message.type()) << ')' << std::endl;
         std::string serialized_message = message.SerializeAsString();

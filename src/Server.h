@@ -12,12 +12,13 @@
 #include <thread>
 #include <steam/steamnetworkingsockets.h>
 #include "message.pb.h"
+#include "Network.h"
 
 
 class Server : public ISteamNetworkingSocketsCallbacks
 {
 public:
-    Server(uint16 port);
+    Server(std::shared_ptr<Network>, uint16 port);
 
     ~Server();
 
@@ -30,10 +31,6 @@ public:
     void send_message(const Godot::GNSMessage &message);
 
 private:
-    static void init_steam_datagram_connection_sockets();
-
-    static void DebugOutput(ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg);
-
     void threaded_run();
 
     void poll_incoming_messages();
@@ -55,6 +52,7 @@ private:
 
     void send_string_to_all_clients( const std::string &text, HSteamNetConnection except = k_HSteamNetConnection_Invalid );
 
+    std::shared_ptr<Network> network;
     SteamNetworkingIPAddr addr_server;
 
     std::atomic_flag thread_run = ATOMIC_FLAG_INIT;

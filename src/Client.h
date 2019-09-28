@@ -10,11 +10,12 @@
 #include <thread>
 #include <steam/steamnetworkingsockets.h>
 #include <frame.pb.h>
+#include "Network.h"
 
 class Client : ISteamNetworkingSocketsCallbacks
 {
 public:
-    Client(const std::string &address, uint16 port);
+    Client(std::shared_ptr<Network>, const std::string &address, uint16 port);
 
     ~Client();
 
@@ -31,8 +32,6 @@ public:
     }
 
 private:
-    static void init_steam_datagram_connection_sockets();
-
     void threaded_run();
 
     void poll_incoming_messages();
@@ -42,6 +41,7 @@ private:
     // callback
     void OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t *callback) override;
 
+    std::shared_ptr<Network> network;
     SteamNetworkingIPAddr addr_server;
 
     std::atomic_flag thread_run = ATOMIC_FLAG_INIT;

@@ -5,20 +5,21 @@
 #include "Client.h"
 #include <iostream>
 #include <cassert>
+#include <utility>
 #include <steam/isteamnetworkingutils.h>
 #include <google/protobuf/stubs/common.h>
 #include <message.pb.h>
 
-Client::Client(const std::string &address, uint16 port)
-        : addr_server()
-          , connection_thread(nullptr)
-          , connection()
-          , network_interface(nullptr)
+Client::Client(std::shared_ptr<Network> net, const std::string &address, uint16 port)
+        : network(std::move(net))
+        , addr_server()
+        , connection_thread(nullptr)
+        , connection()
+        , network_interface(nullptr)
 {
     addr_server.Clear();
     addr_server.ParseString(address.c_str());
     addr_server.m_port = port;
-    init_steam_datagram_connection_sockets();
     GOOGLE_PROTOBUF_VERIFY_VERSION;
 
     // Select instance to use. For now we'll always use the default.
@@ -31,48 +32,6 @@ Client::~Client()
     {
         this->close();
     }
-}
-
-void Client::init_steam_datagram_connection_sockets()
-{
-#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-    SteamDatagramErrMsg error_message;
-//    if (not GameNetworkingSockets_Init(nullptr, error_message))
-//    {
-//        std::cerr << "GameNetworkingSockets_Init failed. " << error_message << std::endl;
-//        throw std::runtime_error("GameNetworkingSockets_Init failed");
-//    }
-#else
-    SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
-    //SteamDatagramClient_SetUniverse( k_EUniverseDev );
-
-    SteamDatagramErrMsg error_message;
-    if ( !SteamDatagramClient_Init( true, error_message ) )
-        FatalError( "SteamDatagramClient_Init failed.  %s", error_message );
-
-    // Disable authentication when running with Steam, for this
-    // example, since we're not a real app.
-    //
-    // Authentication is disabled automatically in the open-source
-    // version since we don't have a trusted third party to issue
-    // certs.
-    SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1 );
-#endif
-
-//    g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
-
-    auto lambda = [](ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg) {
-        std::cerr << pszMsg << std::endl;
-        if (eType == k_ESteamNetworkingSocketsDebugOutputType_Bug)
-        {
-            throw std::runtime_error("Well, the example dies here :)");
-        }
-    };
-
-    SteamNetworkingUtils()->SetDebugOutputFunction(
-            k_ESteamNetworkingSocketsDebugOutputType_Msg,
-            lambda
-    );
 }
 
 void Client::run()

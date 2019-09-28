@@ -26,6 +26,7 @@ set(SPACESHIP_SRC
     src/EntityManager.cpp
     src/Server.cpp
     src/Client.cpp
+    src/Network.cpp
 )
 
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS
