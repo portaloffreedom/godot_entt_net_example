@@ -132,10 +132,10 @@ void Server::threaded_run()
         if (counter %100 == 0) {
             //NOTE HERE: this ping is only for test purposes. The GameNetworkingSockets library
             // already includes a keep alive messaging system.
-            std::cout << "SENDING PING" << std::endl;
-            std::ostringstream message;
-            message << "ping(" << counter << ')';
-            send_string_to_all_clients(message.str());
+//            std::cout << "SENDING PING" << std::endl;
+//            std::ostringstream message;
+//            message << "ping(" << counter << ')';
+//            send_string_to_all_clients(message.str());
         }
         poll_sending_message_queue();
 
@@ -374,6 +374,7 @@ void Server::poll_sending_message_queue()
     std::lock_guard<std::mutex> lock(message_queue_mutex);
     while (not message_queue.empty()) {
         const Godot::GNSMessage &message = message_queue.front();
+        std::cout << "Sending peding message (" << Godot::MessageType_Name(message.type()) << ')' << std::endl;
         std::string serialized_message = message.SerializeAsString();
         send_data_to_all_clients(serialized_message.data(), serialized_message.size());
         message_queue.pop();

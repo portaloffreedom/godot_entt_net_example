@@ -6,8 +6,18 @@
 #include <PackedScene.hpp>
 #include <entt/entt.hpp>
 #include "Server.h"
+#include "Client.h"
 
 namespace godot {
+
+typedef Vector3 position;
+
+struct velocity
+{
+    float dx;
+    float dy;
+    float dz;
+};
 
 class EntityManager : public Spatial {
     GODOT_CLASS(EntityManager, Spatial)
@@ -21,7 +31,8 @@ public:
     void _init();
     void _process(float delta);
 
-    void create_entity();
+    void create_entity(const position &pos, const velocity &vel);
+    void create_random_entity();
 private:
     // registry
     entt::registry registry;
@@ -36,7 +47,8 @@ private:
     std::uniform_real_distribution<float> dis;
 
     // Server class
-    Server server;
+    std::unique_ptr<Server> server;
+    std::unique_ptr<Client> client;
 };
 
 }

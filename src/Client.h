@@ -9,6 +9,7 @@
 #include <memory>
 #include <thread>
 #include <steam/steamnetworkingsockets.h>
+#include <frame.pb.h>
 
 class Client : ISteamNetworkingSocketsCallbacks
 {
@@ -22,6 +23,12 @@ public:
     void close();
 
     void join();
+
+    Godot::Frame last_frame()
+    {
+        std::lock_guard<std::mutex> lock (last_frame_mutex);
+        return this->_last_frame;
+    }
 
 private:
     static void init_steam_datagram_connection_sockets();
@@ -41,6 +48,9 @@ private:
     std::unique_ptr<std::thread> connection_thread;
     ISteamNetworkingSockets *network_interface;
     HSteamNetConnection connection;
+
+    std::mutex last_frame_mutex;
+    Godot::Frame _last_frame;
 };
 
 

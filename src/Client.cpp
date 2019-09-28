@@ -37,11 +37,11 @@ void Client::init_steam_datagram_connection_sockets()
 {
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
     SteamDatagramErrMsg error_message;
-    if (not GameNetworkingSockets_Init(nullptr, error_message))
-    {
-        std::cerr << "GameNetworkingSockets_Init failed. " << error_message << std::endl;
-        throw std::runtime_error("GameNetworkingSockets_Init failed");
-    }
+//    if (not GameNetworkingSockets_Init(nullptr, error_message))
+//    {
+//        std::cerr << "GameNetworkingSockets_Init failed. " << error_message << std::endl;
+//        throw std::runtime_error("GameNetworkingSockets_Init failed");
+//    }
 #else
     SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
     //SteamDatagramClient_SetUniverse( k_EUniverseDev );
@@ -144,9 +144,13 @@ void Client::poll_incoming_messages()
             break;
         case Godot::MessageType::FRAME:
             std::cout << "Received Frame message ";
-            std::cout << message.DebugString();
-            std::cout << message.frame().entities(0).name();
+//            std::cout << message.DebugString();
+            std::cout << message.frame().entities_size();
             std::cout << std::endl;
+            {
+                std::lock_guard<std::mutex> lock(last_frame_mutex);
+                _last_frame = message.frame();
+            }
             break;
         default:
             std::clog << "received unrecognized message of type ";
