@@ -111,6 +111,11 @@ void Client::poll_incoming_messages()
                 _last_frame = message.frame();
             }
             break;
+        case Godot::MessageType::ACTION:
+        {
+            std::lock_guard<std::mutex> lock(pending_actions_mutex);
+            _pending_actions.emplace_back(message.action());
+        }
         default:
             std::clog << "received unrecognized message of type ";
             const std::string& message_type = Godot::MessageType_Name(message.type());
@@ -191,4 +196,16 @@ void Client::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCa
             // Silences -Wswitch
             break;
     }
+}
+
+unsigned int Client::operate_actions(const std::function<void(const ::Godot::Action &)>& fun)
+{
+    std::lock_guard<std::mutex> lock(pending_actions_mutex);
+    size_t n_actions = _pending_actions.size();
+    while (not _pending_actions.empty()) {
+        const ::Godot::Action &action = _pending_actions.front();
+        fun(action);
+        _pending_actions.pop_front();
+    }
+    return n_actions;
 }

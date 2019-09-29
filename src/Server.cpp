@@ -278,18 +278,18 @@ void Server::set_client_nick(HSteamNetConnection connection, const std::string &
     network_interface->SetConnectionName(connection, nick.c_str());
 }
 
-void Server::send_data_to_client(HSteamNetConnection connection, const void *data, unsigned int data_size)
+void Server::send_data_to_client(HSteamNetConnection connection, const void *data, unsigned int data_size, int send_flags)
 {
-    network_interface->SendMessageToConnection(connection, data, data_size, k_nSteamNetworkingSend_Reliable);
+    network_interface->SendMessageToConnection(connection, data, data_size, send_flags);
 }
 
-void Server::send_data_to_all_clients(const void *data, unsigned int data_size, HSteamNetConnection except)
+void Server::send_data_to_all_clients(const void *data, unsigned int data_size, int send_flag, HSteamNetConnection except)
 {
     for (auto &client: client_map)
     {
         if (client.first != except)
         {
-            send_data_to_client(client.first, data, data_size);
+            send_data_to_client(client.first, data, data_size, send_flag);
         }
     }
 }
@@ -314,10 +314,10 @@ void Server::send_string_to_all_clients(const std::string &text, HSteamNetConnec
     send_data_to_all_clients(serialized_message.data(), serialized_message.size(), except);
 }
 
-void Server::send_message(const Godot::GNSMessage &message)
+void Server::send_message(const Godot::GNSMessage &message, int send_flag)
 {
     std::lock_guard<std::mutex> lock(message_queue_mutex);
-    message_queue.emplace(message);
+    message_queue.emplace(std::make_pair(message, send_flag));
 }
 
 void Server::poll_sending_message_queue()
@@ -325,10 +325,11 @@ void Server::poll_sending_message_queue()
     std::lock_guard<std::mutex> lock(message_queue_mutex);
     while (not message_queue.empty())
     {
-        const Godot::GNSMessage &message = message_queue.front();
+        const Godot::GNSMessage &message = message_queue.front().first;
+        const int send_flag = message_queue.front().second;
         std::cout << "Sending peding message (" << Godot::MessageType_Name(message.type()) << ')' << std::endl;
         std::string serialized_message = message.SerializeAsString();
-        send_data_to_all_clients(serialized_message.data(), serialized_message.size());
+        send_data_to_all_clients(serialized_message.data(), serialized_message.size(), send_flag);
         message_queue.pop();
     }
 }

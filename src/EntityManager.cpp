@@ -66,8 +66,20 @@ void EntityManager::_process(float delta)
             auto &pos = registry.get<position>(entity);
             if (fabs(pos.x) > arena_size or fabs(pos.y) > arena_size)
             {
+                // messaging
+                ::Godot::GNSMessage message;
+                message.set_type(::Godot::MessageType::ACTION);
+                ::Godot::Action *action_message = message.mutable_action();
+                action_message->set_type(::Godot::ActionType::DESTROY_ENTITY);
+                ::Godot::Entity *entity_message = action_message->mutable_entity();
+                create_entity_message(entity_message, entity);
+                server->send_message(message, k_nSteamNetworkingSend_Reliable);
+
+                // memory cleanup
                 registry.get<Spatial*>(entity)->queue_free();
                 registry.destroy(entity);
+
+                // keep always at least one entity
                 if (registry.empty()) {
                     create_random_entity();
                 }
@@ -95,7 +107,7 @@ void EntityManager::_process(float delta)
                     name->assign(c);
                 });
         std::cout << "Sending message frame with (" << message.frame().entities_size() << ") elements" << std::endl;
-        server->send_message(message);
+        server->send_message(message, k_nSteamNetworkingSend_UnreliableNoDelay);
 
         Input *input = Input::get_singleton();
         if (input->is_action_pressed("ui_accept"))
@@ -103,6 +115,48 @@ void EntityManager::_process(float delta)
             this->create_random_entity();
         }
     } else { // client
+        // check remote connection action
+        client->operate_actions([this] (const ::Godot::Action &action) {
+            switch (action.type())
+            {
+            case ::Godot::ActionType::CREATE_ENTITY:
+//                    position pos = action.entity().position();
+//                    velocity vel = action.entity().velocity();
+//                    create_entity(pos, vel);
+                break;
+            case ::Godot::ActionType::DESTROY_ENTITY:
+            {
+                const std::string &entity_name = action.entity().name();
+                for (auto &entity: registry.view<Spatial *>())
+                {
+                    Spatial *s_entity = registry.get<Spatial *>(entity);
+                    const String &local_name = s_entity->get_name();
+                    if (local_name.operator==(entity_name.c_str()))
+                    {
+                        s_entity->queue_free();
+                        registry.destroy(entity);
+                        break;
+                    }
+                }
+                break;
+            }
+            default:
+                std::clog << "Received Unrecognized action of type ";
+                const std::string& message_type = ::Godot::ActionType_Name(action.type());
+                if (message_type.empty())
+                {
+                    std::clog << '(' << action.type() << ')';
+                }
+                else
+                {
+                    std::clog << message_type;
+                }
+                std::clog << std::endl;
+            }
+        });
+
+
+        // update using last frame
         const ::Godot::Frame &frame = client->last_frame();
         for (const auto &remote_entity: frame.entities()) {
             const std::string &name = remote_entity.name();
@@ -138,7 +192,7 @@ void EntityManager::_process(float delta)
     }
 }
 
-void EntityManager::create_entity(const position &pos, const velocity &vel)
+entt::entity EntityManager::create_entity(const position &pos, const velocity &vel)
 {
     Godot::print("Adding node");
     entt::entity entity = registry.create();
@@ -152,11 +206,41 @@ void EntityManager::create_entity(const position &pos, const velocity &vel)
     entity_node->set_script(this->entity_script.ptr());
     registry.assign<Spatial*>(entity, entity_node);
     Godot::print("Node Added");
+    return entity;
 }
 
 void EntityManager::create_random_entity()
 {
     float dx = dis(gen);
     float dz = dis(gen);
-    create_entity(position{0.0f, 0.0f, 0.0f}, velocity{dx, 0.0f, dz});
+    entt::entity entity = create_entity(position{0.0f, 0.0f, 0.0f}, velocity{dx, 0.0f, dz});
+
+    if (server)
+    {
+        ::Godot::GNSMessage message;
+        message.set_type(::Godot::MessageType::ACTION);
+        ::Godot::Action *action_message = message.mutable_action();
+        action_message->set_type(::Godot::ActionType::CREATE_ENTITY);
+        ::Godot::Entity *entity_message = action_message->mutable_entity();
+        create_entity_message(entity_message, entity);
+        server->send_message(message, k_nSteamNetworkingSend_Reliable);
+    }
+}
+
+void EntityManager::create_entity_message(::Godot::Entity *message, entt::entity entity)
+{
+    const Vector3 &pos = registry.get<position>(entity);
+    const velocity &vel = registry.get<velocity>(entity);
+    const Spatial *s_entity = registry.get<Spatial*>(entity);
+
+    message->mutable_position()->set_x(pos.x);
+    message->mutable_position()->set_y(pos.y);
+    message->mutable_position()->set_z(pos.z);
+    message->mutable_velocity()->set_x(vel.dx);
+    message->mutable_velocity()->set_y(vel.dy);
+    message->mutable_velocity()->set_z(vel.dz);
+    std::string *name = message->mutable_name();
+    auto gs = s_entity->get_name().utf8();
+    std::string c(gs.get_data(), gs.length());
+    name->assign(c);
 }

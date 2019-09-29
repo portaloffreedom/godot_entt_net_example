@@ -31,9 +31,11 @@ public:
     void _init();
     void _process(float delta);
 
-    void create_entity(const position &pos, const velocity &vel);
+    entt::entity create_entity(const position &pos, const velocity &vel);
     void create_random_entity();
 private:
+    void create_entity_message(::Godot::Entity *message, entt::entity entity);
+
     // registry
     entt::registry registry;
 

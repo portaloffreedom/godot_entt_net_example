@@ -28,7 +28,7 @@ public:
 
     void join();
 
-    void send_message(const Godot::GNSMessage &message);
+    void send_message(const Godot::GNSMessage &message, int send_flag = k_nSteamNetworkingSend_Reliable);
 
 private:
     void threaded_run();
@@ -44,9 +44,9 @@ private:
 
     void set_client_nick( HSteamNetConnection connection, const std::string &nick);
 
-    void send_data_to_client( HSteamNetConnection connection, const void* data, unsigned int data_size );
+    void send_data_to_client( HSteamNetConnection connection, const void* data, unsigned int data_size, int send_flag = k_nSteamNetworkingSend_Reliable);
 
-    void send_data_to_all_clients( const void* data, unsigned int data_size, HSteamNetConnection except = k_HSteamNetConnection_Invalid );
+    void send_data_to_all_clients( const void* data, unsigned int data_size, int send_flag = k_nSteamNetworkingSend_Reliable, HSteamNetConnection except = k_HSteamNetConnection_Invalid);
 
     void send_string_to_client( HSteamNetConnection connection, const std::string &text);
 
@@ -67,5 +67,5 @@ private:
     std::map<HSteamNetConnection, Client_t> client_map;
 
     std::mutex message_queue_mutex;
-    std::queue<Godot::GNSMessage> message_queue;
+    std::queue<std::pair<Godot::GNSMessage, int>> message_queue;
 };
