@@ -8,7 +8,7 @@ message Vector3 {
 }
 
 message Entity {
-    string name = 1;
+    uint32 uuid = 1;
     Vector3 position = 2;
     Vector3 velocity = 3;
 }

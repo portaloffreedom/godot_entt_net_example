@@ -11,6 +11,7 @@
 namespace godot {
 
 typedef Vector3 position;
+typedef unsigned int uuid;
 
 struct velocity
 {
@@ -31,13 +32,14 @@ public:
     void _init();
     void _process(float delta);
 
-    entt::entity create_entity(const position &pos, const velocity &vel);
+    entt::entity create_entity(uuid ent_uuid, const position &pos, const velocity &vel);
     void create_random_entity();
 private:
     void create_entity_message(::Godot::Entity *message, entt::entity entity);
 
     // registry
     entt::registry registry;
+    uuid last_created;
 
     // preload of the resources to create a single entity
     Ref<PackedScene> entity_scene;

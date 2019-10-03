@@ -327,7 +327,7 @@ void Server::poll_sending_message_queue()
     {
         const Godot::GNSMessage &message = message_queue.front().first;
         const int send_flag = message_queue.front().second;
-        std::cout << "Sending peding message (" << Godot::MessageType_Name(message.type()) << ')' << std::endl;
+//        std::cout << "Sending peding message (" << Godot::MessageType_Name(message.type()) << ')' << std::endl;
         std::string serialized_message = message.SerializeAsString();
         send_data_to_all_clients(serialized_message.data(), serialized_message.size(), send_flag);
         message_queue.pop();

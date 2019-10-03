@@ -12,8 +12,19 @@ void EntityManager::_register_methods()
     register_method("_process", &EntityManager::_process);
 }
 
+inline Vector3 vec3_from_net(const ::Godot::Vector3 &vec)
+{
+    return Vector3 {vec.x(), vec.y(), vec.z()};
+}
+
+inline velocity vel_from_net(const ::Godot::Vector3 &vec)
+{
+    return velocity {vec.x(), vec.y(), vec.z()};
+}
+
 EntityManager::EntityManager()
-    : rd()
+    : last_created(0)
+    , rd()
     , gen(rd())
     , dis(-5.0, 5.0)
     , server(nullptr)
@@ -90,8 +101,8 @@ void EntityManager::_process(float delta)
         message.set_type(::Godot::MessageType::FRAME);
         ::Godot::Frame *frame = message.mutable_frame();
         int index = 0;
-        registry.view<position, velocity, Spatial *>().each(
-                [frame, &index](position &pos, velocity &vel, Spatial *s_entity) {
+        registry.view<position, velocity, uuid>().each(
+                [frame, &index](position &pos, velocity &vel, uuid uuid) {
                     frame->add_entities();
                     ::Godot::Entity *entity = frame->mutable_entities(index++);
 
@@ -101,12 +112,9 @@ void EntityManager::_process(float delta)
                     entity->mutable_velocity()->set_x(vel.dx);
                     entity->mutable_velocity()->set_y(vel.dy);
                     entity->mutable_velocity()->set_z(vel.dz);
-                    std::string *name = entity->mutable_name();
-                    auto gs = s_entity->get_name().utf8();
-                    std::string c(gs.get_data(), gs.length());
-                    name->assign(c);
+                    entity->set_uuid(uuid);
                 });
-        std::cout << "Sending message frame with (" << message.frame().entities_size() << ") elements" << std::endl;
+//        std::cout << "Sending message frame with (" << message.frame().entities_size() << ") elements" << std::endl;
         server->send_message(message, k_nSteamNetworkingSend_UnreliableNoDelay);
 
         Input *input = Input::get_singleton();
@@ -120,24 +128,34 @@ void EntityManager::_process(float delta)
             switch (action.type())
             {
             case ::Godot::ActionType::CREATE_ENTITY:
-//                    position pos = action.entity().position();
-//                    velocity vel = action.entity().velocity();
-//                    create_entity(pos, vel);
+            {
+                const uuid remote_uuid = action.entity().uuid();
+                const position pos = vec3_from_net(action.entity().position());
+                const velocity vel = vel_from_net(action.entity().velocity());
+                create_entity(remote_uuid, pos, vel);
                 break;
+            }
             case ::Godot::ActionType::DESTROY_ENTITY:
             {
-                const std::string &entity_name = action.entity().name();
-                for (auto &entity: registry.view<Spatial *>())
+                const uuid remote_uuid = action.entity().uuid();
+                bool found = false;
+                for (auto &entity: registry.view<uuid, Spatial *>())
                 {
-                    Spatial *s_entity = registry.get<Spatial *>(entity);
-                    const String &local_name = s_entity->get_name();
-                    if (local_name.operator==(entity_name.c_str()))
+                    const uuid local_uuid = registry.get<uuid>(entity);
+                    if (local_uuid == remote_uuid)
                     {
+                        Spatial *s_entity = registry.get<Spatial *>(entity);
                         s_entity->queue_free();
                         registry.destroy(entity);
+                        found = true;
                         break;
                     }
                 }
+                if (not found)
+                {
+                    std::clog << "Destroy entity message of entity " << remote_uuid << std::endl;
+                }
+
                 break;
             }
             default:
@@ -159,43 +177,48 @@ void EntityManager::_process(float delta)
         // update using last frame
         const ::Godot::Frame &frame = client->last_frame();
         for (const auto &remote_entity: frame.entities()) {
-            const std::string &name = remote_entity.name();
+            const uuid remote_uuid = remote_entity.uuid();
             const Vector3 remote_pos = Vector3(
                     remote_entity.position().x(),
                     remote_entity.position().y(),
                     remote_entity.position().z()
             );
             bool found = false;
-            for(auto &local_entity: registry.view<position, Spatial* >())
+            for(auto &local_entity: registry.view<position, uuid>())
             {
-                String str = registry.get<Spatial*>(local_entity)->get_name();
-                if (str.operator==(name.c_str())) {
+                uuid local_uuid = registry.get<uuid>(local_entity);
+                if (local_uuid == remote_uuid) {
                     found = true;
                     Vector3 &pos = registry.replace<position>(local_entity, remote_pos);
                     break;
                 }
             }
-            if (not found) {
-                create_entity(
-                        remote_pos,
-                        velocity{0.0f,0.0f,0.0f}
-                );
+            if (not found)
+            {
+                // This code creates problem because frame and action messages can arrive in the
+                //  wrong order.
+                //create_entity(
+                //        remote_uuid,
+                //        remote_pos,
+                //        velocity{0.0f,0.0f,0.0f}
+                //);
             }
         }
 
         registry.view<position, velocity, Spatial*>().each([delta](position &pos, velocity &vel, Spatial* s_entity) {
-//                pos.x += vel.dx * delta;
-//                pos.y += vel.dy * delta;
-//                pos.z += vel.dz * delta;
+            pos.x += vel.dx * delta;
+            pos.y += vel.dy * delta;
+            pos.z += vel.dz * delta;
             s_entity->set_translation(Vector3(pos.x, pos.y, pos.z));
         });
     }
 }
 
-entt::entity EntityManager::create_entity(const position &pos, const velocity &vel)
+entt::entity EntityManager::create_entity(const uuid ent_uuid, const position &pos, const velocity &vel)
 {
     Godot::print("Adding node");
     entt::entity entity = registry.create();
+    registry.assign<uuid>(entity, ent_uuid);
     registry.assign<position>(entity, pos);
     registry.assign<velocity>(entity, vel);
     std::stringstream message;
@@ -213,7 +236,7 @@ void EntityManager::create_random_entity()
 {
     float dx = dis(gen);
     float dz = dis(gen);
-    entt::entity entity = create_entity(position{0.0f, 0.0f, 0.0f}, velocity{dx, 0.0f, dz});
+    entt::entity entity = create_entity(++last_created, position{0.0f, 0.0f, 0.0f}, velocity{dx, 0.0f, dz});
 
     if (server)
     {
@@ -231,7 +254,7 @@ void EntityManager::create_entity_message(::Godot::Entity *message, entt::entity
 {
     const Vector3 &pos = registry.get<position>(entity);
     const velocity &vel = registry.get<velocity>(entity);
-    const Spatial *s_entity = registry.get<Spatial*>(entity);
+    const uuid ent_uuid = registry.get<uuid>(entity);
 
     message->mutable_position()->set_x(pos.x);
     message->mutable_position()->set_y(pos.y);
@@ -239,8 +262,5 @@ void EntityManager::create_entity_message(::Godot::Entity *message, entt::entity
     message->mutable_velocity()->set_x(vel.dx);
     message->mutable_velocity()->set_y(vel.dy);
     message->mutable_velocity()->set_z(vel.dz);
-    std::string *name = message->mutable_name();
-    auto gs = s_entity->get_name().utf8();
-    std::string c(gs.get_data(), gs.length());
-    name->assign(c);
+    message->set_uuid(ent_uuid);
 }

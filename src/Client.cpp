@@ -102,10 +102,10 @@ void Client::poll_incoming_messages()
             std::cout << message.text().text() << std::endl;
             break;
         case Godot::MessageType::FRAME:
-            std::cout << "Received Frame message ";
+//            std::cout << "Received Frame message ";
 //            std::cout << message.DebugString();
-            std::cout << message.frame().entities_size();
-            std::cout << std::endl;
+//            std::cout << message.frame().entities_size();
+//            std::cout << std::endl;
             {
                 std::lock_guard<std::mutex> lock(last_frame_mutex);
                 _last_frame = message.frame();
@@ -115,6 +115,7 @@ void Client::poll_incoming_messages()
         {
             std::lock_guard<std::mutex> lock(pending_actions_mutex);
             _pending_actions.emplace_back(message.action());
+            break;
         }
         default:
             std::clog << "received unrecognized message of type ";
