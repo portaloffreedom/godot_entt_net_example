@@ -8,6 +8,7 @@
 #include "Server.h"
 #include "Client.h"
 
+
 namespace godot {
 
 typedef Vector3 position;
@@ -39,6 +40,7 @@ private:
 
     // registry
     entt::registry registry;
+    std::map<uuid, entt::entity> entt_map;
     uuid last_created;
 
     // preload of the resources to create a single entity

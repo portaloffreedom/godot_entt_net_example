@@ -124,7 +124,8 @@ void EntityManager::_process(float delta)
         }
     } else { // client
         // check remote connection action
-        client->operate_actions([this] (const ::Godot::Action &action) {
+        client->operate_actions([this] (const ::Godot::Action &action)
+        {
             switch (action.type())
             {
             case ::Godot::ActionType::CREATE_ENTITY:
@@ -132,30 +133,25 @@ void EntityManager::_process(float delta)
                 const uuid remote_uuid = action.entity().uuid();
                 const position pos = vec3_from_net(action.entity().position());
                 const velocity vel = vel_from_net(action.entity().velocity());
-                create_entity(remote_uuid, pos, vel);
+                entt::entity ent = create_entity(remote_uuid, pos, vel);
+                entt_map.emplace(remote_uuid, ent);
                 break;
             }
             case ::Godot::ActionType::DESTROY_ENTITY:
             {
                 const uuid remote_uuid = action.entity().uuid();
-                bool found = false;
-                for (auto &entity: registry.view<uuid, Spatial *>())
+                try
                 {
-                    const uuid local_uuid = registry.get<uuid>(entity);
-                    if (local_uuid == remote_uuid)
-                    {
-                        Spatial *s_entity = registry.get<Spatial *>(entity);
-                        s_entity->queue_free();
-                        registry.destroy(entity);
-                        found = true;
-                        break;
-                    }
+                    entt::entity entity = entt_map.at(remote_uuid);
+                    Spatial *s_entity = registry.get<Spatial *>(entity);
+                    s_entity->queue_free();
+                    registry.destroy(entity);
+                    entt_map.erase(remote_uuid);
                 }
-                if (not found)
+                catch (const std::out_of_range &e)
                 {
                     std::clog << "Destroy entity message of entity " << remote_uuid << std::endl;
                 }
-
                 break;
             }
             default:
@@ -178,22 +174,15 @@ void EntityManager::_process(float delta)
         const ::Godot::Frame &frame = client->last_frame();
         for (const auto &remote_entity: frame.entities()) {
             const uuid remote_uuid = remote_entity.uuid();
-            const Vector3 remote_pos = Vector3(
-                    remote_entity.position().x(),
-                    remote_entity.position().y(),
-                    remote_entity.position().z()
-            );
-            bool found = false;
-            for(auto &local_entity: registry.view<position, uuid>())
+            const Vector3 remote_pos = vec3_from_net(remote_entity.position());
+            const velocity remote_vel = vel_from_net(remote_entity.velocity());
+            try
             {
-                uuid local_uuid = registry.get<uuid>(local_entity);
-                if (local_uuid == remote_uuid) {
-                    found = true;
-                    Vector3 &pos = registry.replace<position>(local_entity, remote_pos);
-                    break;
-                }
+                entt::entity local_entity = entt_map.at(remote_uuid);
+                registry.replace<position>(local_entity, remote_pos);
+                registry.replace<velocity>(local_entity, remote_vel);
             }
-            if (not found)
+            catch (const std::out_of_range &e)
             {
                 // This code creates problem because frame and action messages can arrive in the
                 //  wrong order.
