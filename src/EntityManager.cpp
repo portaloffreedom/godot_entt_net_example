@@ -29,6 +29,7 @@ EntityManager::EntityManager()
     , dis(-5.0, 5.0)
     , server(nullptr)
     , client(nullptr)
+    , server_frame_last_update(std::chrono::steady_clock::duration::zero())
 {
     std::shared_ptr<Network> network = std::make_shared<Network>();
     try {
@@ -71,51 +72,56 @@ void EntityManager::_process(float delta)
             s_entity->set_translation(Vector3(pos.x, pos.y, pos.z));
         });
 
-        for(auto &entity: registry.view<position, Spatial*>())
+        if (std::chrono::steady_clock::now() - server_frame_last_update > FRAME_UPDATE_RATE)
         {
-            const float arena_size = 36.0f;
-            auto &pos = registry.get<position>(entity);
-            if (fabs(pos.x) > arena_size or fabs(pos.y) > arena_size)
+            server_frame_last_update = std::chrono::steady_clock::now();
+            for (auto &entity: registry.view<position, Spatial *>())
             {
-                // messaging
-                ::Godot::GNSMessage message;
-                message.set_type(::Godot::MessageType::ACTION);
-                ::Godot::Action *action_message = message.mutable_action();
-                action_message->set_type(::Godot::ActionType::DESTROY_ENTITY);
-                ::Godot::Entity *entity_message = action_message->mutable_entity();
-                create_entity_message(entity_message, entity);
-                server->send_message(message, k_nSteamNetworkingSend_Reliable);
+                const float arena_size = 36.0f;
+                auto &pos = registry.get<position>(entity);
+                if (fabs(pos.x) > arena_size or fabs(pos.y) > arena_size)
+                {
+                    // messaging
+                    ::Godot::GNSMessage message;
+                    message.set_type(::Godot::MessageType::ACTION);
+                    ::Godot::Action *action_message = message.mutable_action();
+                    action_message->set_type(::Godot::ActionType::DESTROY_ENTITY);
+                    ::Godot::Entity *entity_message = action_message->mutable_entity();
+                    create_entity_message(entity_message, entity);
+                    server->send_message(message, k_nSteamNetworkingSend_Reliable);
 
-                // memory cleanup
-                registry.get<Spatial*>(entity)->queue_free();
-                registry.destroy(entity);
+                    // memory cleanup
+                    registry.get<Spatial *>(entity)->queue_free();
+                    registry.destroy(entity);
 
-                // keep always at least one entity
-                if (registry.empty()) {
-                    create_random_entity();
+                    // keep always at least one entity
+                    if (registry.empty())
+                    {
+                        create_random_entity();
+                    }
                 }
             }
-        }
-        // network
-        ::Godot::GNSMessage message;
-        message.set_type(::Godot::MessageType::FRAME);
-        ::Godot::Frame *frame = message.mutable_frame();
-        int index = 0;
-        registry.view<position, velocity, uuid>().each(
-                [frame, &index](position &pos, velocity &vel, uuid uuid) {
-                    frame->add_entities();
-                    ::Godot::Entity *entity = frame->mutable_entities(index++);
+            // network
+            ::Godot::GNSMessage message;
+            message.set_type(::Godot::MessageType::FRAME);
+            ::Godot::Frame *frame = message.mutable_frame();
+            int index = 0;
+            registry.view<position, velocity, uuid>().each(
+                    [frame, &index](position &pos, velocity &vel, uuid uuid) {
+                        frame->add_entities();
+                        ::Godot::Entity *entity = frame->mutable_entities(index++);
 
-                    entity->mutable_position()->set_x(pos.x);
-                    entity->mutable_position()->set_y(pos.y);
-                    entity->mutable_position()->set_z(pos.z);
-                    entity->mutable_velocity()->set_x(vel.dx);
-                    entity->mutable_velocity()->set_y(vel.dy);
-                    entity->mutable_velocity()->set_z(vel.dz);
-                    entity->set_uuid(uuid);
-                });
-//        std::cout << "Sending message frame with (" << message.frame().entities_size() << ") elements" << std::endl;
-        server->send_message(message, k_nSteamNetworkingSend_UnreliableNoDelay);
+                        entity->mutable_position()->set_x(pos.x);
+                        entity->mutable_position()->set_y(pos.y);
+                        entity->mutable_position()->set_z(pos.z);
+                        entity->mutable_velocity()->set_x(vel.dx);
+                        entity->mutable_velocity()->set_y(vel.dy);
+                        entity->mutable_velocity()->set_z(vel.dz);
+                        entity->set_uuid(uuid);
+                    });
+//            std::cout << "Sending message frame with (" << message.frame().entities_size() << ") elements" << std::endl;
+            server->send_message(message, k_nSteamNetworkingSend_UnreliableNoDelay);
+        }
 
         Input *input = Input::get_singleton();
         if (input->is_action_pressed("ui_accept"))

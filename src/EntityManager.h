@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <random>
 #include <Godot.hpp>
 #include <Spatial.hpp>
@@ -38,23 +39,28 @@ public:
 private:
     void create_entity_message(::Godot::Entity *message, entt::entity entity);
 
-    // registry
-    entt::registry registry;
-    std::map<uuid, entt::entity> entt_map;
-    uuid last_created;
-
     // preload of the resources to create a single entity
     Ref<PackedScene> entity_scene;
     Ref<Resource> entity_script;
+
+    // registry
+    entt::registry registry;
+
+    // Client stuff --------------------
+    std::unique_ptr<Client> client;
+    std::map<uuid, entt::entity> entt_map;
+
+    // Server stuff --------------------
+    std::unique_ptr<Server> server;
+    uuid last_created;
+    const std::chrono::steady_clock::duration FRAME_UPDATE_RATE = std::chrono::milliseconds(50);
+    std::chrono::steady_clock::time_point server_frame_last_update;
 
     // stuff for the random generator
     std::random_device rd;
     std::mt19937 gen;
     std::uniform_real_distribution<float> dis;
 
-    // Server class
-    std::unique_ptr<Server> server;
-    std::unique_ptr<Client> client;
 };
 
 }
