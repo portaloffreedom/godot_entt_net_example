@@ -1,0 +1,22 @@
+// Message IDL file
+
+include "entity.fbs";
+include "frame.fbs";
+include "text_message.fbs";
+
+namespace FlatGodot;
+
+enum ActionType: byte { CREATE_ENTITY, DESTROY_ENTITY }
+
+table Action {
+    type: ActionType;
+    entity: Entity;
+}
+
+union MyMessage { TextMessage, Frame, Action }
+
+table GNSMessage {
+    message: MyMessage;
+}
+
+root_type GNSMessage;

@@ -8,8 +8,8 @@
 #include <utility>
 #include <steam/steamnetworkingtypes.h>
 #include <steam/steamnetworkingsockets.h>
-#include <text_message.pb.h>
-#include <message.pb.h>
+#include <text_message_generated.h>
+#include <message_generated.h>
 #include "Server.h"
 #include "Network.h"
 
@@ -17,12 +17,11 @@ Server::Server(std::shared_ptr<Network> net, uint16 port)
         : network(std::move(net))
         , addr_server()
         , listening_thread(nullptr)
-        , listen_socket()
         , network_interface(nullptr)
+        , listen_socket()
 {
     addr_server.Clear();
     addr_server.m_port = port;
-    GOOGLE_PROTOBUF_VERIFY_VERSION;
 
     // Select instance to use.  For now we'll always use the default.
     // But we could use SteamGameServerNetworkingSockets() on Steam.
@@ -294,30 +293,40 @@ void Server::send_data_to_all_clients(const void *data, unsigned int data_size, 
     }
 }
 
-std::string serialize_text_message(const std::string &text)
+flatbuffers::FlatBufferBuilder serialize_text_message(const std::string &text)
 {
-    Godot::GNSMessage message;
-    message.set_type(Godot::MessageType::TEXT);
-    message.mutable_text()->set_text(text);
-    return message.SerializeAsString();
+    // Create buffer
+    flatbuffers::FlatBufferBuilder builder;
+    auto flat_text = builder.CreateString(text);
+    auto text_message = FlatGodot::CreateTextMessage(builder, flat_text);
+    auto gns_message = FlatGodot::CreateGNSMessage(builder, FlatGodot::MyMessage_TextMessage, text_message.Union());
+
+    // Two alternative version to finish the message
+    //FlatGodot::FinishGNSMessageBuffer(builder, gns_message);
+    builder.Finish(gns_message);
+
+    // Buffer and size can be accessed after builder is finished.
+    //uint8_t *buf = builder.GetBufferPointer();
+    //size_t size = builder.GetSize();
+    return builder;
 }
 
 void Server::send_string_to_client(HSteamNetConnection connection, const std::string &text)
 {
-    std::string serialized_message = serialize_text_message(text);
-    send_data_to_client(connection, serialized_message.data(), serialized_message.size());
+    flatbuffers::FlatBufferBuilder serialized_message = serialize_text_message(text);
+    send_data_to_client(connection, serialized_message.GetBufferPointer(), serialized_message.GetSize());
 }
 
 void Server::send_string_to_all_clients(const std::string &text, HSteamNetConnection except)
 {
-    std::string serialized_message = serialize_text_message(text);
-    send_data_to_all_clients(serialized_message.data(), serialized_message.size(), except);
+    flatbuffers::FlatBufferBuilder serialized_message = serialize_text_message(text);
+    send_data_to_all_clients(serialized_message.GetBufferPointer(), serialized_message.GetSize());
 }
 
-void Server::send_message(const Godot::GNSMessage &message, int send_flag)
+void Server::send_message(std::unique_ptr<flatbuffers::FlatBufferBuilder> message_buffer, int send_flag)
 {
     std::lock_guard<std::mutex> lock(message_queue_mutex);
-    message_queue.emplace(std::make_pair(message, send_flag));
+    message_queue.emplace(std::move(message_buffer), send_flag);
 }
 
 void Server::poll_sending_message_queue()
@@ -325,11 +334,10 @@ void Server::poll_sending_message_queue()
     std::lock_guard<std::mutex> lock(message_queue_mutex);
     while (not message_queue.empty())
     {
-        const Godot::GNSMessage &message = message_queue.front().first;
+        const flatbuffers::FlatBufferBuilder &message_buffer = *message_queue.front().first;
         const int send_flag = message_queue.front().second;
 //        std::cout << "Sending peding message (" << Godot::MessageType_Name(message.type()) << ')' << std::endl;
-        std::string serialized_message = message.SerializeAsString();
-        send_data_to_all_clients(serialized_message.data(), serialized_message.size(), send_flag);
+        send_data_to_all_clients(message_buffer.GetBufferPointer(), message_buffer.GetSize(), send_flag);
         message_queue.pop();
     }
 }

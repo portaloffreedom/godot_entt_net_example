@@ -1,0 +1,17 @@
+ // Entity IDL file
+
+namespace FlatGodot;
+
+struct Vector3 {
+  x: float;
+  y: float;
+  z: float;
+}
+
+table Entity {
+  uuid: uint32 = 0;
+  position: Vector3;
+  velocity: Vector3;
+}
+
+root_type Entity;

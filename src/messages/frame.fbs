@@ -1,0 +1,11 @@
+// Frame IDL file
+
+include "entity.fbs";
+
+namespace FlatGodot;
+
+table Frame {
+    entities:[Entity];
+}
+
+root_type Frame;

@@ -1,0 +1,7 @@
+// Text Message IDL file
+
+namespace FlatGodot;
+
+table TextMessage {
+    text: string;
+}

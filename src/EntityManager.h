@@ -37,7 +37,7 @@ public:
     entt::entity create_entity(uuid ent_uuid, const position &pos, const velocity &vel);
     void create_random_entity();
 private:
-    void create_entity_message(::Godot::Entity *message, entt::entity entity);
+    flatbuffers::Offset<FlatGodot::Entity> create_entity_message(flatbuffers::FlatBufferBuilder &builder, entt::entity entity);
 
     // preload of the resources to create a single entity
     Ref<PackedScene> entity_scene;

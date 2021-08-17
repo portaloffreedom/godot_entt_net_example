@@ -9,11 +9,13 @@
 #include <functional>
 #include <memory>
 #include <thread>
+#include <mutex>
 #include <steam/steamnetworkingsockets.h>
-#include <frame.pb.h>
-#include <message.pb.h>
+#include <frame_generated.h>
+#include <message_generated.h>
 #include <deque>
 #include "Network.h"
+#include "MessageContainer.h"
 
 class Client : ISteamNetworkingSocketsCallbacks
 {
@@ -28,13 +30,13 @@ public:
 
     void join();
 
-    Godot::Frame last_frame()
+    const FlatGodot::Frame &last_frame()
     {
         std::lock_guard<std::mutex> lock (last_frame_mutex);
-        return this->_last_frame;
+        return this->_last_frame.Data();
     }
 
-    unsigned int operate_actions(const std::function<void(const ::Godot::Action &)>& fun);
+    unsigned int operate_actions(const std::function<void(const FlatGodot::Action &)>& fun);
 
 private:
     void threaded_run();
@@ -55,10 +57,10 @@ private:
     HSteamNetConnection connection;
 
     std::mutex last_frame_mutex;
-    Godot::Frame _last_frame;
+    MessageContainer<FlatGodot::Frame> _last_frame;
 
     std::mutex pending_actions_mutex;
-    std::deque<::Godot::Action> _pending_actions;
+    std::deque<MessageContainer<FlatGodot::Action>> _pending_actions;
 };
 
 

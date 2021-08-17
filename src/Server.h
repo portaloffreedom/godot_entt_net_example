@@ -11,7 +11,7 @@
 #include <queue>
 #include <thread>
 #include <steam/steamnetworkingsockets.h>
-#include "message.pb.h"
+#include "message_generated.h"
 #include "Network.h"
 
 
@@ -28,7 +28,7 @@ public:
 
     void join();
 
-    void send_message(const Godot::GNSMessage &message, int send_flag = k_nSteamNetworkingSend_Reliable);
+    void send_message(std::unique_ptr<flatbuffers::FlatBufferBuilder> message_buffer, int send_flag = k_nSteamNetworkingSend_Reliable);
 
 private:
     void threaded_run();
@@ -67,5 +67,5 @@ private:
     std::map<HSteamNetConnection, Client_t> client_map;
 
     std::mutex message_queue_mutex;
-    std::queue<std::pair<Godot::GNSMessage, int>> message_queue;
+    std::queue<std::pair<std::unique_ptr<flatbuffers::FlatBufferBuilder>, int>> message_queue;
 };

@@ -4,8 +4,7 @@
 
 #include "Server.h"
 #include <iostream>
-#include <google/protobuf/stubs/common.h>
-#include "message.pb.h"
+#include "message_generated.h"
 
 int main(int argc, char** argv)
 {
@@ -15,28 +14,22 @@ int main(int argc, char** argv)
     server.run();
     for (int i=0; i<100; i++)
     {
-        Godot::GNSMessage message;
-        message.set_type(Godot::MessageType::FRAME);
-        Godot::Frame *frame = message.mutable_frame();
-        frame->add_entities();
-        Godot::Vector3 *pos = frame->mutable_entities(0)->mutable_position();
-        Godot::Vector3 *vel = frame->mutable_entities(0)->mutable_velocity();
-        std::string *name = frame->mutable_entities(0)->mutable_name();
+        auto builder = std::make_unique<flatbuffers::FlatBufferBuilder>();
 
-        pos->set_x(0);
-        pos->set_y(1);
-        pos->set_z(2);
+        std::vector<flatbuffers::Offset<FlatGodot::Entity>> entities;
+        FlatGodot::Vector3 pos(0,1,2);
+        FlatGodot::Vector3 vel(3,4,5);
 
-        vel->set_x(3);
-        vel->set_y(4);
-        vel->set_z(5);
+        entities.emplace_back(
+                FlatGodot::CreateEntity(*builder, 42, &pos, &vel)
+                );
 
-        name->assign("diocane");
-
-        server.send_message(message);
+        auto frame = FlatGodot::CreateFrame(*builder, builder->CreateVector(entities));
+        auto message = FlatGodot::CreateGNSMessage(*builder, FlatGodot::MyMessage_Frame, frame.Union());
+        builder->Finish(message);
+        server.send_message(std::move(builder));
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
     server.join();
     std::cout << "Server ended" << std::endl;
-    google::protobuf::ShutdownProtobufLibrary();
 }

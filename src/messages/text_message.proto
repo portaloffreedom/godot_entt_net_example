@@ -1,6 +1,0 @@
-syntax = "proto3";
-package Godot;
-
-message TextMessage {
-    string text = 1;
-}

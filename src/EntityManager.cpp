@@ -3,7 +3,7 @@
 #include <ResourceLoader.hpp>
 #include <Input.hpp>
 #include "EntityManager.h"
-#include "message.pb.h"
+#include "message_generated.h"
 
 using namespace godot;
 
@@ -12,24 +12,24 @@ void EntityManager::_register_methods()
     register_method("_process", &EntityManager::_process);
 }
 
-inline Vector3 vec3_from_net(const ::Godot::Vector3 &vec)
+inline Vector3 vec3_from_net(const FlatGodot::Vector3 &vec)
 {
     return Vector3 {vec.x(), vec.y(), vec.z()};
 }
 
-inline velocity vel_from_net(const ::Godot::Vector3 &vec)
+inline velocity vel_from_net(const FlatGodot::Vector3 &vec)
 {
     return velocity {vec.x(), vec.y(), vec.z()};
 }
 
 EntityManager::EntityManager()
-    : last_created(0)
+    : client(nullptr)
+    , server(nullptr)
+    , last_created(0)
+    , server_frame_last_update(std::chrono::steady_clock::duration::zero())
     , rd()
     , gen(rd())
     , dis(-5.0, 5.0)
-    , server(nullptr)
-    , client(nullptr)
-    , server_frame_last_update(std::chrono::steady_clock::duration::zero())
 {
     std::shared_ptr<Network> network = std::make_shared<Network>();
     try {
@@ -44,7 +44,6 @@ EntityManager::~EntityManager()
 {
     if (server) server->close();
     if (client) client->close();
-    google::protobuf::ShutdownProtobufLibrary();
 }
 
 void EntityManager::_init()
@@ -82,13 +81,13 @@ void EntityManager::_process(float delta)
                 if (fabs(pos.x) > arena_size or fabs(pos.y) > arena_size)
                 {
                     // messaging
-                    ::Godot::GNSMessage message;
-                    message.set_type(::Godot::MessageType::ACTION);
-                    ::Godot::Action *action_message = message.mutable_action();
-                    action_message->set_type(::Godot::ActionType::DESTROY_ENTITY);
-                    ::Godot::Entity *entity_message = action_message->mutable_entity();
-                    create_entity_message(entity_message, entity);
-                    server->send_message(message, k_nSteamNetworkingSend_Reliable);
+                    std::unique_ptr<flatbuffers::FlatBufferBuilder> builder = std::make_unique<flatbuffers::FlatBufferBuilder>();
+
+                    auto entity_message = create_entity_message(*builder, entity);
+                    auto action_message = FlatGodot::CreateAction(*builder, FlatGodot::ActionType_DESTROY_ENTITY, entity_message);
+                    auto message = FlatGodot::CreateGNSMessage(*builder, FlatGodot::MyMessage_Action, action_message.Union());
+                    builder->Finish(message);
+                    server->send_message(std::move(builder), k_nSteamNetworkingSend_Reliable);
 
                     // memory cleanup
                     registry.get<Spatial *>(entity)->queue_free();
@@ -102,25 +101,22 @@ void EntityManager::_process(float delta)
                 }
             }
             // network
-            ::Godot::GNSMessage message;
-            message.set_type(::Godot::MessageType::FRAME);
-            ::Godot::Frame *frame = message.mutable_frame();
-            int index = 0;
+            auto builder = std::make_unique<flatbuffers::FlatBufferBuilder>();
+            std::vector<flatbuffers::Offset<FlatGodot::Entity>> entities;
             registry.view<position, velocity, uuid>().each(
-                    [frame, &index](position &pos, velocity &vel, uuid uuid) {
-                        frame->add_entities();
-                        ::Godot::Entity *entity = frame->mutable_entities(index++);
+                    [&entities, &builder](position &pos, velocity &vel, uuid uuid) {
+                        FlatGodot::Vector3 mPos(pos.x, pos.y, pos.z);
+                        FlatGodot::Vector3 mVel(vel.dx, vel.dy, vel.dz);
 
-                        entity->mutable_position()->set_x(pos.x);
-                        entity->mutable_position()->set_y(pos.y);
-                        entity->mutable_position()->set_z(pos.z);
-                        entity->mutable_velocity()->set_x(vel.dx);
-                        entity->mutable_velocity()->set_y(vel.dy);
-                        entity->mutable_velocity()->set_z(vel.dz);
-                        entity->set_uuid(uuid);
+                        entities.emplace_back(
+                                FlatGodot::CreateEntity(*builder, uuid, &mPos, &mVel));
                     });
 //            std::cout << "Sending message frame with (" << message.frame().entities_size() << ") elements" << std::endl;
-            server->send_message(message, k_nSteamNetworkingSend_UnreliableNoDelay);
+            auto frame = FlatGodot::CreateFrame(*builder, builder->CreateVector(entities));
+
+            auto message = FlatGodot::CreateGNSMessage(*builder, FlatGodot::MyMessage_Frame, frame.Union());
+            builder->Finish(message);
+            server->send_message(std::move(builder), k_nSteamNetworkingSend_UnreliableNoDelay);
         }
 
         Input *input = Input::get_singleton();
@@ -130,22 +126,22 @@ void EntityManager::_process(float delta)
         }
     } else { // client
         // check remote connection action
-        client->operate_actions([this] (const ::Godot::Action &action)
+        client->operate_actions([this] (const FlatGodot::Action &action)
         {
             switch (action.type())
             {
-            case ::Godot::ActionType::CREATE_ENTITY:
+            case FlatGodot::ActionType_CREATE_ENTITY:
             {
-                const uuid remote_uuid = action.entity().uuid();
-                const position pos = vec3_from_net(action.entity().position());
-                const velocity vel = vel_from_net(action.entity().velocity());
+                const uuid remote_uuid = action.entity()->uuid();
+                const position pos = vec3_from_net(*action.entity()->position());
+                const velocity vel = vel_from_net(*action.entity()->velocity());
                 entt::entity ent = create_entity(remote_uuid, pos, vel);
                 entt_map.emplace(remote_uuid, ent);
                 break;
             }
-            case ::Godot::ActionType::DESTROY_ENTITY:
+            case FlatGodot::ActionType_DESTROY_ENTITY:
             {
-                const uuid remote_uuid = action.entity().uuid();
+                const uuid remote_uuid = action.entity()->uuid();
                 try
                 {
                     entt::entity entity = entt_map.at(remote_uuid);
@@ -161,27 +157,19 @@ void EntityManager::_process(float delta)
                 break;
             }
             default:
-                std::clog << "Received Unrecognized action of type ";
-                const std::string& message_type = ::Godot::ActionType_Name(action.type());
-                if (message_type.empty())
-                {
-                    std::clog << '(' << action.type() << ')';
-                }
-                else
-                {
-                    std::clog << message_type;
-                }
-                std::clog << std::endl;
+                std::clog << "Received Unrecognized action of type "
+                          << '(' << action.type() << ')'
+                          << std::endl;
             }
         });
 
 
         // update using last frame
-        const ::Godot::Frame &frame = client->last_frame();
-        for (const auto &remote_entity: frame.entities()) {
-            const uuid remote_uuid = remote_entity.uuid();
-            const Vector3 remote_pos = vec3_from_net(remote_entity.position());
-            const velocity remote_vel = vel_from_net(remote_entity.velocity());
+        const FlatGodot::Frame &frame = client->last_frame();
+        for (const auto &remote_entity: *frame.entities()) {
+            const uuid remote_uuid = remote_entity->uuid();
+            const Vector3 remote_pos = vec3_from_net(*remote_entity->position());
+            const velocity remote_vel = vel_from_net(*remote_entity->velocity());
             try
             {
                 entt::entity local_entity = entt_map.at(remote_uuid);
@@ -235,27 +223,23 @@ void EntityManager::create_random_entity()
 
     if (server)
     {
-        ::Godot::GNSMessage message;
-        message.set_type(::Godot::MessageType::ACTION);
-        ::Godot::Action *action_message = message.mutable_action();
-        action_message->set_type(::Godot::ActionType::CREATE_ENTITY);
-        ::Godot::Entity *entity_message = action_message->mutable_entity();
-        create_entity_message(entity_message, entity);
-        server->send_message(message, k_nSteamNetworkingSend_Reliable);
+        auto builder = std::make_unique<flatbuffers::FlatBufferBuilder>();
+        auto entity_message = create_entity_message(*builder, entity);
+        auto action_message = FlatGodot::CreateAction(*builder, FlatGodot::ActionType_CREATE_ENTITY, entity_message);
+        auto message = FlatGodot::CreateGNSMessage(*builder, FlatGodot::MyMessage_Action, action_message.Union());
+        builder->Finish(message);
+        server->send_message(std::move(builder), k_nSteamNetworkingSend_Reliable);
     }
 }
 
-void EntityManager::create_entity_message(::Godot::Entity *message, entt::entity entity)
+flatbuffers::Offset<FlatGodot::Entity> EntityManager::create_entity_message(flatbuffers::FlatBufferBuilder &builder, entt::entity entity)
 {
     const Vector3 &pos = registry.get<position>(entity);
     const velocity &vel = registry.get<velocity>(entity);
     const uuid ent_uuid = registry.get<uuid>(entity);
 
-    message->mutable_position()->set_x(pos.x);
-    message->mutable_position()->set_y(pos.y);
-    message->mutable_position()->set_z(pos.z);
-    message->mutable_velocity()->set_x(vel.dx);
-    message->mutable_velocity()->set_y(vel.dy);
-    message->mutable_velocity()->set_z(vel.dz);
-    message->set_uuid(ent_uuid);
+    FlatGodot::Vector3 mPos(pos.x, pos.y, pos.z);
+    FlatGodot::Vector3 mVel(vel.dx, vel.dy, vel.dz);
+
+    return FlatGodot::CreateEntity(builder, ent_uuid, &mPos, &mVel);
 }

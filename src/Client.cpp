@@ -7,20 +7,18 @@
 #include <cassert>
 #include <utility>
 #include <steam/isteamnetworkingutils.h>
-#include <google/protobuf/stubs/common.h>
-#include <message.pb.h>
+#include <message_generated.h>
 
 Client::Client(std::shared_ptr<Network> net, const std::string &address, uint16 port)
         : network(std::move(net))
         , addr_server()
         , connection_thread(nullptr)
-        , connection()
         , network_interface(nullptr)
+        , connection()
 {
     addr_server.Clear();
     addr_server.ParseString(address.c_str());
     addr_server.m_port = port;
-    GOOGLE_PROTOBUF_VERIFY_VERSION;
 
     // Select instance to use. For now we'll always use the default.
     network_interface = SteamNetworkingSockets();
@@ -93,45 +91,44 @@ void Client::poll_incoming_messages()
         return;
     }
     assert(num_messages == 1 && incoming_message);
-    Godot::GNSMessage message;
-    message.ParseFromArray(incoming_message->m_pData, incoming_message->m_cbSize);
-    switch (message.type())
+    const FlatGodot::GNSMessage *message = FlatGodot::GetGNSMessage(incoming_message->m_pData); // incoming_message->m_cbSize
+    switch (message->message_type())
     {
-        case Godot::MessageType::TEXT:
-            assert(message.has_text());
-            std::cout << message.text().text() << std::endl;
+        case FlatGodot::MyMessage_TextMessage:
+        {
+            const FlatGodot::TextMessage *text_message = message->message_as_TextMessage();
+            std::cout << text_message->text()->c_str() << std::endl;
             break;
-        case Godot::MessageType::FRAME:
+        }
+        case FlatGodot::MyMessage_Frame:
 //            std::cout << "Received Frame message ";
 //            std::cout << message.DebugString();
 //            std::cout << message.frame().entities_size();
 //            std::cout << std::endl;
             {
+                const FlatGodot::Frame *last_frame = message->message_as_Frame();
                 std::lock_guard<std::mutex> lock(last_frame_mutex);
-                _last_frame = message.frame();
+                _last_frame = MessageContainer(incoming_message, last_frame);
+                incoming_message = nullptr;
             }
             break;
-        case Godot::MessageType::ACTION:
+        case FlatGodot::MyMessage_Action:
         {
+            const FlatGodot::Action *action = message->message_as_Action();
             std::lock_guard<std::mutex> lock(pending_actions_mutex);
-            _pending_actions.emplace_back(message.action());
+            _pending_actions.emplace_back(MessageContainer(incoming_message, action));
+            incoming_message = nullptr;
             break;
         }
         default:
-            std::clog << "received unrecognized message of type ";
-            const std::string& message_type = Godot::MessageType_Name(message.type());
-            if (message_type.empty())
-            {
-                std::clog << '(' << message.type() << ')';
-            }
-            else
-            {
-                std::clog << message_type;
-            }
-            std::clog << std::endl;
+            std::clog << "received unrecognized message of type "
+                      << '(' << message->message_type() << ')'
+                      << std::endl;
             break;
     }
-    incoming_message->Release();
+    if (incoming_message != nullptr) {
+        incoming_message->Release();
+    }
 }
 
 void Client::poll_connection_state_changes()
@@ -199,13 +196,13 @@ void Client::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCa
     }
 }
 
-unsigned int Client::operate_actions(const std::function<void(const ::Godot::Action &)>& fun)
+unsigned int Client::operate_actions(const std::function<void(const FlatGodot::Action &)>& fun)
 {
     std::lock_guard<std::mutex> lock(pending_actions_mutex);
     size_t n_actions = _pending_actions.size();
     while (not _pending_actions.empty()) {
-        const ::Godot::Action &action = _pending_actions.front();
-        fun(action);
+        const MessageContainer<FlatGodot::Action> &action = _pending_actions.front();
+        fun(action.Data());
         _pending_actions.pop_front();
     }
     return n_actions;
